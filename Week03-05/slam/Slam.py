@@ -70,6 +70,10 @@ class Slam:
         # ------------------------------------------
         # ----------- Add your code here -----------
         # ------------------------------------------
+        # EKF two steps
+        # Prediction - based on model
+        # Observation - improve our prediction based 
+        # use the functions that aren't yet used
 
 
     def state_transition(self, raw_drive_meas):

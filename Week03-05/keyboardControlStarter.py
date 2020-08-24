@@ -139,8 +139,42 @@ if __name__ == "__main__":
     
         corners, ids, rejected = aruco.detectMarkers(curr, aruco_dict, parameters=aruco_params)
     
+        grayscale = cv2.cvtColor(curr,cv2.COLOR_BGR2GRAY)
+        for corner in corners:
+            x1, y1 = corner[0][0]
+            x2, y2 = corner[0][2]
+            cropped = grayscale[int(y1):int(y2), int(x1):int(x2)]
+            additional_corners = cv2.goodFeaturesToTrack(cropped, 27, 0.01, 10)
+            for add_corner in additional_corners:
+                add_corner[0][0] += x1
+                add_corner[0][1] += y1
+            homography, _ = cv2.findHomography(corner, np.array([[0, 0], [100, 0], [100, 100], [0, 100]]))
+            normalised_additional_corners = cv2.perspectiveTransform(additional_corners, homography)
+            warped = cv2.warpPerspective(grayscale, homography, (100, 100))
+            print("Cropped")
+            cv2.imshow('cropped', cropped)
+            print("Normalised Corners:")
+            print(normalised_additional_corners)
+            for point in normalised_additional_corners:
+                cv2.circle(warped, tuple(point[0]), 5, (100, 0, 240))
+            cv2.imshow('warped', warped)
+
+            # Create '3D points' for the Aruco markers by transforming 255 points in matrix to coordinates in 3d (note flipped y axis)
+            # FOr each 3d point, find the closest detected feature as a 2d screen point
+            # Pass those to code on slides
+
         aruco.drawDetectedMarkers(curr, corners, ids) # for detected markers show their ids
-        aruco.drawDetectedMarkers(curr, rejected, borderColor=(100, 0, 240)) # unknown squares
+        # aruco.drawDetectedMarkers(curr, rejected, borderColor=(100, 0, 240))  # unknown squares
+
+        # homography, _ = cv2.findHomography(corners, np.array([[0, 0], [100, 0], [100, 100], [0, 100]]))
+        # normalised_additional_corners = cv2.perspectiveTransform(additional_corners, homography)
+
+        # print("Corners:")
+        # print(corners)
+        # print("Homography:")
+        # print(homography)
+        # print("Normalised Additional Corners")
+        # print(normalised_additional_corners)
 
         # scale to 144p
         # feel free to change the resolution
