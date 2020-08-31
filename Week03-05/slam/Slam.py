@@ -44,7 +44,12 @@ class Slam:
         # ------------------------------------------
         # ----------- Add your code here -----------
         # ------------------------------------------
-
+        self.robot.drive(raw_drive_meas)
+        A = self.state_transition(raw_drive_meas)
+        sigma_Q = self.predict_covariance(raw_drive_meas)
+        self.P = A@self.P@A.T + sigma_Q
+        
+        return self.P	
 
     def update(self, measurements):
         if not measurements:
@@ -74,7 +79,11 @@ class Slam:
         # Prediction - based on model
         # Observation - improve our prediction based 
         # use the functions that aren't yet used
+        K = self.P@H.T@np.linalg.inv((H@self.P@H.T+R))
+        x = x + K@(z-z_hat)
+        self.P = (np.eye(x.shape[0])-K@H)@self.P
 
+        self.set_state_vector(x)
 
     def state_transition(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3

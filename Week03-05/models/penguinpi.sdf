@@ -9,12 +9,12 @@
       <pose>0 0 -0.0 0 0 0</pose>
         <mass>10.51011</mass>
         <inertia>
-          <ixx>1.200055</ixx>
+          <ixx>0.200055</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>1.20055</iyy>
+          <iyy>0.20055</iyy>
           <iyz>0</iyz>
-          <izz>01.2</izz>
+          <izz>0.2</izz>
         </inertia>
       </inertial>
     
@@ -30,8 +30,8 @@
                 <ode>
                   <mu>0</mu>
                   <mu2>0</mu2>
-                  <slip1>1.0</slip1>
-                  <slip2>1.0</slip2>
+                  <slip1>0</slip1>
+                  <slip2>0</slip2>
                 </ode>
               </friction>
             </surface>
@@ -244,8 +244,8 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.9</mu>
-              <mu2>50</mu2>
+              <mu>9</mu>
+              <mu2>500</mu2>
               <fdir1>0 0 0</fdir1>
               <slip1>0</slip1>
               <slip2>0</slip2>
@@ -324,8 +324,8 @@
           <surface>
           <friction>
             <ode>
-              <mu>0.9</mu>
-              <mu2>50</mu2>
+              <mu>9</mu>
+              <mu2>500</mu2>
               <fdir1>0 0 0</fdir1>
               <slip1>0</slip1>
               <slip2>0</slip2>

@@ -102,19 +102,19 @@ if __name__ == "__main__":
     
         corners, ids, rejected = aruco.detectMarkers(curr, aruco_dict, parameters=aruco_params)
 
-        additional_corners = cv2.goodFeaturesToTrack(curr, 27, 0.01, 10)
+        # additional_corners = cv2.goodFeaturesToTrack(curr, 27, 0.01, 10)
 
-        homography, _ = cv2.findHomography(corners, np.array([[0, 0], [100, 0], [100, 100], [0, 100]]))
-        normalised_additional_corners = cv2.perspectiveTransform(additional_corners, homography)
+        # homography, _ = cv2.findHomography(corners, np.array([[0, 0], [100, 0], [100, 100], [0, 100]]))
+        # normalised_additional_corners = cv2.perspectiveTransform(additional_corners, homography)
 
-        print("Corners:")
-        print(corners)
-        print("Additional Corners:")
-        print(additional_corners)
-        print("Homography:")
-        print(homography)
-        print("Normalised Additional Corners")
-        print(normalised_additional_corners)
+        # print("Corners:")
+        # print(corners)
+        # print("Additional Corners:")
+        # print(additional_corners)
+        # print("Homography:")
+        # print(homography)
+        # print("Normalised Additional Corners")
+        # print(normalised_additional_corners)
     
         aruco.drawDetectedMarkers(curr, corners, ids) # for detected markers show their ids
         aruco.drawDetectedMarkers(curr, rejected, borderColor=(100, 0, 240)) # unknown squares

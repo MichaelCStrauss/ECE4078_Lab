@@ -40,6 +40,8 @@ class Robot:
             next_y = y + R * (np.cos(theta) - np.cos(next_theta))
         
 
+        print(f'{dt=}, {angular_velocity=}, {self.wheels_width=}, {next_theta=}, {next_x=}, {next_y=}')
+
         self.state[0] = next_x
         self.state[1] = next_y
         self.state[2] = next_theta

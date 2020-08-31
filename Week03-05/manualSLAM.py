@@ -8,7 +8,7 @@ import json
 
 # Import keyboard teleoperation components
 import penguinPiC
-import keyboardControlARtestStarter as Keyboard
+import keyboardControlStarter as Keyboard
 
 # Import SLAM components
 sys.path.insert(0, "{}/slam".format(os.getcwd()))
