@@ -9,7 +9,7 @@ import cv2.aruco as aruco
 
 class Keyboard:
     # feel free to change the speed, or add keys to do so
-    wheel_vel_forward = 30
+    wheel_vel_forward = 50
     wheel_vel_rotation = 20
     def __init__(self, ppi=None):
         # storage for key presses

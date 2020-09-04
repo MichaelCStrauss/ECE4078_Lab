@@ -17,7 +17,7 @@ class Slam:
 
         # Covariance matrix
         self.P = np.zeros((3,3))
-        self.init_lm_cov = 1e3
+        self.init_lm_cov = 1e2
 
     def number_landmarks(self):
         return int(self.markers.shape[1])
@@ -69,7 +69,9 @@ class Slam:
         # TODO: compute own measurements
         z_hat = self.robot.measure(self.markers, idx_list)
         z_hat = z_hat.reshape((-1,1),order="F")
+        z_hat = np.clip(z_hat, -10, 10)
         H = self.robot.derivative_measure(self.markers, idx_list)
+        print(f'{H=}')
 
         x = self.get_state_vector()
         # ------------------------------------------
