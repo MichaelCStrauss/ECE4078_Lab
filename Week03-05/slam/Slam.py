@@ -71,7 +71,7 @@ class Slam:
         z_hat = z_hat.reshape((-1,1),order="F")
         z_hat = np.clip(z_hat, -10, 10)
         H = self.robot.derivative_measure(self.markers, idx_list)
-        print(f'{H=}')
+        # print(f'{H=}')
         H = np.clip(H, -10, 10)
 
         x = self.get_state_vector()

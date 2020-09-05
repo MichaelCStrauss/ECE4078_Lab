@@ -65,6 +65,7 @@ class Operate:
         self.img = self.ppi.get_image()
         lms, aruco_image = self.aruco_det.detect_marker_positions(self.img)
         self.slam.add_landmarks(lms)
+        # print(f'{self.slam.taglist=}, {self.slam.markers=}')
         self.slam.update(lms)
 
     def display(self, fig, ax):
