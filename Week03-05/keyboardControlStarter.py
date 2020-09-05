@@ -23,7 +23,6 @@ class Keyboard:
         self.listener = Listener(on_press=self.on_press, on_release=self.on_release).start()
 
     def on_press(self, key):
-        print(key)
         # use arrow keys to drive, space key to stop
         # feel free to add more keys
         if key == Key.up or key == 'w':
@@ -40,7 +39,6 @@ class Keyboard:
         self.send_drive_signal()
 
     def on_release(self, key):
-        print(f'{key} released')
         # use arrow keys to drive, space key to stop
         # feel free to add more keys
         if key == Key.up or key == 'w':

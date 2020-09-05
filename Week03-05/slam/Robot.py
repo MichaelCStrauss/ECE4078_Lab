@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 class Robot:
     def __init__(self, wheels_width, wheels_scale, camera_matrix, camera_dist):
@@ -26,8 +27,9 @@ class Robot:
         x = self.state[0]
         y = self.state[1]
         theta = self.state[2]
+        R = 0
 
-        if angular_velocity == 0:
+        if math.isclose(angular_velocity, 0):
 
             next_x = x + np.cos(theta)*linear_velocity*dt
             next_y = y + np.sin(theta)*linear_velocity*dt
@@ -40,7 +42,7 @@ class Robot:
             next_y = y + R * (np.cos(theta) - np.cos(next_theta))
         
 
-        print(f'{dt=}, {angular_velocity=}, {self.wheels_width=}, {next_theta=}, {next_x=}, {next_y=}')
+        print(f'{dt=}, {linear_velocity=}, {angular_velocity=}, {R=}, {next_theta=}, {next_x=}, {next_y=}')
 
         self.state[0] = next_x
         self.state[1] = next_y

@@ -16,6 +16,7 @@ import slam.Slam as Slam
 import slam.Robot as Robot
 import slam.aruco_detector as aruco
 import slam.Measurements as Measurements
+import time
 
 # Manual SLAM
 class Operate:
@@ -53,10 +54,10 @@ class Operate:
 
         return camera_matrix, dist_coeffs, scale, baseline
 
-    def control(self):
+    def control(self, dt):
         # Import teleoperation control signals
         lv, rv = self.keyboard.latest_drive_signal()
-        drive_meas = Measurements.DriveMeasurement(lv, rv, dt=0.3)
+        drive_meas = Measurements.DriveMeasurement(lv, rv, dt=dt)
         self.slam.predict(drive_meas)
 
     def vision(self):
@@ -89,10 +90,17 @@ class Operate:
         fig, ax = plt.subplots(1, 2)
         img_artist = ax[1].imshow(self.img)
 
+        real_time_factor = 0.5
+
+        time_prev = time.time()
         # Main loop
         while True:
             # Run SLAM
-            self.control()
+            time_now = time.time()
+            dt = time_now - time_prev
+            dt *= real_time_factor
+            time_prev = time_now
+            self.control(dt)
             self.vision()
 
             # Save SLAM map
