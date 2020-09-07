@@ -128,7 +128,5 @@ if __name__ == "__main__":
         cv2.imshow('video', resized)
 
         cv2.waitKey(1)
-        if keyboard_control.isded:
-            break
 
         continue
