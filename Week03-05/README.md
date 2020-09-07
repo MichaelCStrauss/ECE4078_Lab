@@ -4,7 +4,7 @@ This is our submission for the second milestone, SLAM.
 
 ## Notes
 
-Please see the results of four successful (90-100%) runs, where all markers were detected within 1.5m except for one run.
+Please see the results of four successful (90-100%) runs, where all markers were detected within 1.5m except for one run. We have included a screen recording of a 100% run. Skip to 5 minutes into the run to observe the difference between `slam.txt` and the true results. We hope if you have any issues with our code, that you can refer back to this screen recording.
 
 We changed the handling of `dt` in the prediction step. After noticing that the predictions depended on how quickly the code was running on the computer (e.g. if `predict` is called 100 times per second vs 10 times per second, the motion model moves the robot 10 times further), we included the real `dt` value from the system clock. After tweaking calibration and covariances, we were able to get this working reasonably consistently, I hope you are able too as well :) 
 

@@ -1,2 +1,5 @@
 workspace/
 **/__pycache__/
+**/generated_dataset/
+**/dataset_segmented/
+**/dataset_provided/
