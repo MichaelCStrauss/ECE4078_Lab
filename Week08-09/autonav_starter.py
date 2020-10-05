@@ -27,7 +27,7 @@ total_marker_num = 6
 
 # drive settings, feel free to change them
 wheel_vel = 40
-fps = 10
+fps = 30
 
 # camera calibration parameters (from M2: SLAM)
 camera_matrix = np.loadtxt('camera_calibration/intrinsic.txt', delimiter=',')
@@ -56,50 +56,78 @@ current_marker = 'start'
 timeout = time.time() + 60*15  
 
 start_t = time.time()
+
+def get_camera():
+    # get current frame
+    curr = ppi.get_image()
+
+    # visualise ARUCO marker detection annotations
+    aruco_params = aruco.DetectorParameters_create()
+    aruco_params.minDistanceToBorder = 0
+    aruco_params.adaptiveThreshWinSizeMax = 1000
+    aruco_dict = aruco.Dictionary_get(cv2.aruco.DICT_4X4_100)
+
+    corners, ids, rejected = aruco.detectMarkers(curr, aruco_dict, parameters=aruco_params)
+    rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
+
+    aruco.drawDetectedMarkers(curr, corners, ids) # for detected markers show their ids
+    aruco.drawDetectedMarkers(curr, rejected, borderColor=(100, 0, 240)) # unknown squares
+
+    # scale to 144p
+    resized = cv2.resize(curr, (960, 720), interpolation = cv2.INTER_AREA)
+
+    # add GUI text
+    cv2.putText(resized, 'PenguinPi', (15, 50), font, font_scale, font_col, line_type)
+
+    # visualisation
+    cv2.imshow('video', resized)
+    cv2.waitKey(1)
+
+    return corners, ids, rejected, rvecs, tvecs
+
+for _ in range(4):
+    get_camera()
+
+marker_ids_driven_to = []
 # repeat until all markers are found or until time out
 while len(marker_list) < total_marker_num:
     # ------------------------------------------------------------------------------------
     # TODO: calculate the time the robot needs to spin 360 degrees
     # spin_time = ?
     # ------------------------------------------------------------------------------------
+    spin_time = 7
 
     # save all the seen markers and their estimated poses at each step
     measurements = []
     seen_ids = []
-    for step in range(int(spin_time*fps)):
+    moved_past_first = False
+    spin = True
+    frames = 0
+    while spin:
         # spinning and looking for markers at each step
-        ppi.set_velocity(-wheel_vel, wheel_vel, 1/fps)
-        ppi.set_velocity(0, 0)
+        ppi.set_velocity(-wheel_vel, wheel_vel)
 
-        # get current frame
-        curr = ppi.get_image()
+        corners, ids, rejected, rvecs, tvecs = get_camera()
+        
 
-        # visualise ARUCO marker detection annotations
-        aruco_params = aruco.DetectorParameters_create()
-        aruco_params.minDistanceToBorder = 0
-        aruco_params.adaptiveThreshWinSizeMax = 1000
-        aruco_dict = aruco.Dictionary_get(cv2.aruco.DICT_4X4_100)
-
-        corners, ids, rejected = aruco.detectMarkers(curr, aruco_dict, parameters=aruco_params)
-        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
-
-        aruco.drawDetectedMarkers(curr, corners, ids) # for detected markers show their ids
-        aruco.drawDetectedMarkers(curr, rejected, borderColor=(100, 0, 240)) # unknown squares
-
-        # scale to 144p
-        resized = cv2.resize(curr, (960, 720), interpolation = cv2.INTER_AREA)
-
-        # add GUI text
-        cv2.putText(resized, 'PenguinPi', (15, 50), font, font_scale, font_col, line_type)
-
-        # visualisation
-        cv2.imshow('video', resized)
-        cv2.waitKey(1)
+        frames += 1
 
         # compute a marker's estimated pose and distance to the robot
         if ids is None:
             continue
         else:
+            print(f'{seen_ids=}')
+            ids_in_view = [ids[i, 0] for i in range(len(ids))]
+            print(f'{ids_in_view=}')
+            if len(seen_ids) > 0:
+                if seen_ids[0] in ids_in_view:
+                    print("seeing first marker")
+                    if moved_past_first and frames > spin_time * fps / 2:
+                        print("breaking")
+                        spin = False
+                        break
+                else:
+                    moved_past_first = True
             for i in range(len(ids)):
                 idi = ids[i,0]
                 # Some markers appear multiple times but should only be handled once.
@@ -125,6 +153,8 @@ while len(marker_list) < total_marker_num:
     # TODO: notice that the robot can get stuck always trying to reach the nearest marker, improve the search strategy to improve auto nav
     measurements = sorted(measurements, key=lambda x: x[1]) # sort seen markers by distance (closest first)
 
+    ppi.set_velocity(0, 0, 3)
+
     if len(measurements) > 0:
         # add discovered markers to map
         for accessible_marker in measurements:
@@ -144,12 +174,72 @@ while len(marker_list) < total_marker_num:
         # drive to the nearest marker by first turning towards it then driving straight
         # TODO: calculate the time the robot needs to spin towards the nearest marker
         # turn_time = ?
-        ppi.set_velocity(-wheel_vel, wheel_vel, turn_time)
-        ppi.set_velocity(0, 0)
+        measured_ids = [m[0] for m in measurements]
+        goal_marker_id = None
+        for i in range(len(measured_ids)):
+            m_id = measured_ids[i]
+            if m_id not in marker_ids_driven_to:
+                goal_marker_id = m_id
+                marker_ids_driven_to.append(m_id)
+                break
+        if goal_marker_id is None:
+            print("driven to all markers in view!")
+            raise Exception()
+
+        # Turn to face target
+        while True:
+            print(f"turning to target {goal_marker_id}")
+            ppi.set_velocity(-wheel_vel, wheel_vel, 1 / fps)
+
+            # Get the ids in view
+            corners, ids, rejected, rvecs, tvecs = get_camera()
+
+            if ids is None:
+                continue
+            ids_in_view = [ids[i, 0] for i in range(len(ids))]
+
+            if goal_marker_id in ids_in_view:
+                break
+
         # TODO: calculate the time the robot needs to drive straight to the nearest marker
-        # drive_time = ?
-        ppi.set_velocity(wheel_vel, wheel_vel, drive_time)
-        ppi.set_velocity(0, 0)
+        driving = True
+        vel_l, vel_r = wheel_vel, wheel_vel
+        while driving:
+            ppi.set_velocity(vel_l, vel_r)
+
+            corners, ids, rejected, rvecs, tvecs = get_camera()
+
+
+            if ids is None:
+                continue
+
+            for i in range(len(ids)):
+                idi = ids[i,0]
+                # Some markers appear multiple times but should only be handled once.
+                if idi != goal_marker_id:
+                    continue
+
+                avg_x = corners[i][0, :, 0].mean()
+                diff_from_center = avg_x - 120
+                k = 0.1
+                vel_l, vel_r = wheel_vel + diff_from_center * k,  wheel_vel - diff_from_center * k
+                
+                # get pose estimation
+                # ------------------------------------------------------------------------------------
+                # TODO: this is a basic implementation of pose estimation, change it to improve your auto nav
+                lm_tvecs = tvecs[ids==idi].T
+                lm_bff2d = np.block([[lm_tvecs[2,:]],[-lm_tvecs[0,:]]])
+                lm_bff2d = np.mean(lm_bff2d, axis=1).reshape(-1,1)
+                # compute Euclidean distance between the robot and the marker
+                dist = np.sqrt((lm_bff2d[0][0]-robot_pose[0]) ** 2 + (lm_bff2d[1][0]-robot_pose[1]) ** 2)
+                # save marker measurements and distance
+                print(f'{dist=}')
+
+                if dist < 1:
+                    driving = False
+
+
+        ppi.set_velocity(0, 0, 2)
         # TODO: you may implement an alterative approach that combines turning and driving forward
 
         # update the robot's pose to location of the marker it tries to reach
