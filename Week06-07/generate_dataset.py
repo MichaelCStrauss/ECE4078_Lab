@@ -31,7 +31,7 @@ def generate_image(id, neither, sheep, coke, base, mode):
         scale = random.random() + 0.5
         paste_w, paste_h = int(coke_w * scale), int(coke_h * scale)
         top_x, top_y = random.randint(0, neither_w - paste_w), random.randint(0, neither_h - paste_h)
-        coke_image.resize((paste_w, paste_h))
+        coke_image = coke_image.resize((paste_w, paste_h))
         neither_image.paste(
             coke_image, (top_x, top_y), coke_image
         )
@@ -45,18 +45,18 @@ def generate_image(id, neither, sheep, coke, base, mode):
     neither_image.save(f'{base}/images/{mode}/{id}.jpg')
 
 
-num_examples = 16_000
+num_examples = 10_000
 
 for id in tqdm(range(num_examples)):
     background = random.randint(201, 299)
     background = f'model_images/neither/{background}.png'
     
-    sheep = random.randint(1, 18)
+    sheep = random.randint(1, 14)
     if sheep > 12 or sheep == 5:
         sheep = None
     else:
         sheep = f'model_images/sheep/sheep_{sheep}-removebg-preview.png'
-    coke = random.randint(1, 18)
+    coke = random.randint(1, 14)
     if coke > 12:
         coke = None
     else:
@@ -66,7 +66,7 @@ for id in tqdm(range(num_examples)):
         id, background, sheep, coke, './generated_dataset', 'train'
     )
 
-num_examples = 4_000
+num_examples = 1_000
 
 for id in tqdm(range(num_examples)):
     background = random.randint(201, 299)
