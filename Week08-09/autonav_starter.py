@@ -254,6 +254,23 @@ while len(marker_list) < total_marker_num:
         print('no markers in sight!')
     # ------------------------------------------------------------------------------------
 
+    
+    # save results to map.txt
+    # sort marker list by id before printing
+    marker_list = sorted(marker_list, key=lambda x: x[0])
+    with open(map_f,'w') as f:
+        f.write('id, x, y\n')
+        for markers in marker_list:
+            for marker in markers:
+                f.write(str(marker) + ',')
+            f.write('\n')
+        f.write('\ncurrent id, accessible id, distance\n')
+        for routes in saved_map:
+            for route in routes:
+                f.write(str(route) + ',')
+            f.write('\n')
+    print('map saved!')
+
     # time out after 15 minutes
     if time.time() > timeout:
         break
