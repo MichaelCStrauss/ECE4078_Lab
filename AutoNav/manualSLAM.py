@@ -1,5 +1,11 @@
 # Manually drive the robot inside the arena and perform SLAM using ARUCO markers
 
+# TODO:
+# - increase turning speed greatly
+# - maybe increase forward speed (calibration)
+# - add to readme that we don't use FPS and use real time instead
+# - maybe investigate glitching?? 
+
 # Import packages
 import numpy as np
 import matplotlib.pyplot as plt
@@ -107,7 +113,7 @@ class Operate:
         )
 
         return corners, ids, rejected, rvecs, tvecs
-    
+
     def pause(self, pause_time=0.5):
         time_start = time.time()
         self.time_prev = time.time()
@@ -182,7 +188,7 @@ class Operate:
                 str(self.current_marker) if self.current_marker is not None else "start"
             )
             self.paths.append((current, str(marker_id), str(float(dist))))
-        
+
         return seen_ids
 
     def get_marker_location(self, marker_id):
@@ -195,7 +201,17 @@ class Operate:
 
         self.time_prev = time.time()
 
+        marker_pos = self.get_marker_location(goal_marker_id)
+        robot_pos = self.slam.robot.state[0:2]
+        relative_angle = math.atan2(
+            marker_pos[1] - robot_pos[1], marker_pos[0] - robot_pos[0]
+        )
+
         model_theta = self.slam.get_state_vector()[2]
+
+        delta = relative_angle - model_theta
+        spin_direction = 1 if delta > 0 else -1
+
         pause_theta = model_theta
         while True:
             time_now = time.time()
@@ -204,7 +220,7 @@ class Operate:
             self.time_prev = time_now
             wheel_vel = 28
             print(f"turning to target {goal_marker_id}")
-            lv, rv = -wheel_vel, wheel_vel
+            lv, rv = -spin_direction * wheel_vel, spin_direction * wheel_vel
             self.ppi.set_velocity(lv, rv)
 
             # Get the ids in view
@@ -224,6 +240,44 @@ class Operate:
             print(ids_in_view)
             if goal_marker_id in ids_in_view:
                 break
+
+        adjusting = True
+        adjusting_ticks = 0
+        while adjusting and adjusting_ticks < 60:
+            time_now = time.time()
+            dt = time_now - self.time_prev
+            dt *= real_time_factor
+            self.time_prev = time_now
+            wheel_vel = 40
+            print(f"adjusting to target {goal_marker_id}")
+
+            lv, rv = 0, 0
+
+            corners, ids, rejected, rvecs, tvecs = self.get_camera()
+
+            if ids is not None:
+                for i in range(len(ids)):
+                    idi = ids[i, 0]
+                    # Some markers appear multiple times but should only be handled once.
+                    if idi != goal_marker_id:
+                        continue
+
+                    avg_x = corners[i][0, :, 0].mean()
+                    diff_from_center = avg_x - 320
+                    print(f"{diff_from_center=}")
+                    k = 0.4
+                    lv, rv = (
+                        diff_from_center * k,
+                        -diff_from_center * k,
+                    )
+                    lv, rv = int(lv), int(rv)
+                    lv = np.clip(lv, -40, 40)
+                    rv = np.clip(rv, -40, 40)
+                    if abs(diff_from_center) < 10:
+                        adjusting = False
+
+            self.step(lv, rv, dt)
+            adjusting_ticks += 1
 
         for _ in range(10):
             self.vision()
@@ -249,34 +303,23 @@ class Operate:
 
             corners, ids, rejected, rvecs, tvecs = self.get_camera()
 
-            if ids is not None:
-                for i in range(len(ids)):
-                    idi = ids[i, 0]
-                    # Some markers appear multiple times but should only be handled once.
-                    if idi != goal_marker_id:
-                        continue
-
-                    avg_x = corners[i][0, :, 0].mean()
-                    print(f"{avg_x=}")
-                    diff_from_center = avg_x - 320
-                    k = 0
-                    lv, rv = (
-                        wheel_vel + diff_from_center * k,
-                        wheel_vel - diff_from_center * k,
-                    )
-                    lv, rv = int(lv), int(rv)
-                    lv = np.clip(lv, -50, 50)
-                    rv = np.clip(rv, -50, 50)
-
             position = self.slam.robot.state[0:2]
             dist = (target_location[0] - position[0]) ** 2 + (
                 target_location[1] - position[1]
             ) ** 2
             dist = dist ** 0.5
-            print(f"{dist=}")
+            print(f"{dist=} {ids=}")
 
             if dist < 0.75:
                 driving = False
+
+            # elif dist < 1.2:
+            #     if ids is None:
+            #         driving = False
+            #     else:
+            #         ids_in_view = [ids[i, 0] for i in range(len(ids))]
+            #         if goal_marker_id not in ids_in_view:
+            #             driving = False
 
             self.step(lv, rv, dt)
 
@@ -336,6 +379,8 @@ class Operate:
         # Output visualisation
         self.display(self.fig, self.ax)
 
+        print(f'{self.slam.robot.state[0:3]=}')
+
     def write_map(self, slam):
         map_f = "map.txt"
         marker_list = sorted(self.slam.taglist)
@@ -358,6 +403,28 @@ class Operate:
                 line = ", ".join(path)
                 f.write(line + "\n")
 
+    def drive_one_metre(self):
+        # spinning and looking for markers at each step
+        wheel_vel = 40
+
+        drive = True
+        real_time_factor = 0.5
+        self.time_prev = time.time()
+        while drive:
+            time_now = time.time()
+            dt = time_now - self.time_prev
+            dt *= real_time_factor
+            self.time_prev = time_now
+            model_x = self.slam.get_state_vector()[0]
+            lv, rv = wheel_vel, wheel_vel
+
+            if model_x > 1:
+                drive = False
+
+            self.step(lv, rv, dt)
+
+        self.ppi.set_velocity(0, 0, 0.5)
+
     def process(self):
         # Show SLAM and camera feed side by side
         self.fig, self.ax = plt.subplots(1, 2)
@@ -367,6 +434,9 @@ class Operate:
         while True:
             seen_ids = self.spinOneRotation()
             goal_marker, goal_dist = self.get_closest_untravelled_marker(seen_ids)
+            if goal_marker is None:
+                print("No marker to drive to")
+                break
             self.spin_to_marker(goal_marker)
             self.drive_to_marker(goal_marker)
             self.markers_travelled_to.append(goal_marker)
