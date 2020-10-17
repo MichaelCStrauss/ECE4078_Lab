@@ -124,7 +124,7 @@ class Robot:
             # robot xy DH
             DH[2*i:2*i+2,0:2] = - Rot_theta.T
             # robot theta DH
-            DH[2*i:2*i+2, 2:3] = DRot_theta.T @ (lmj_inertial - robot_xy)
+            # DH[2*i:2*i+2, 2:3] = DRot_theta.T @ (lmj_inertial - robot_xy)
             # lm xy DH
             DH[2*i:2*i+2, 3+2*j:3+2*j+2] = Rot_theta.T
 

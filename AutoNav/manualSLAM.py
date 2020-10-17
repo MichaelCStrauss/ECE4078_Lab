@@ -4,7 +4,7 @@
 # - increase turning speed greatly
 # - maybe increase forward speed (calibration)
 # - add to readme that we don't use FPS and use real time instead
-# - maybe investigate glitching?? 
+# - maybe investigate glitching??
 
 # Import packages
 import numpy as np
@@ -51,6 +51,7 @@ font_col = (255, 255, 255)
 line_type = 2
 
 valid_marker_ids = [1, 3, 7, 8, 9, 11, 12, 21, 39]
+ip = [(12, 21), (12, 39), (12, 1), (8, 1)]
 
 
 # Manual SLAM
@@ -78,6 +79,8 @@ class Operate:
         self.current_marker = None
         self.spinning = True
         self.frames = 0
+
+        self.run_start = time.time()
 
     # def __del__(self):
     # self.ppi.set_velocity(0, 0)
@@ -114,11 +117,13 @@ class Operate:
 
         return corners, ids, rejected, rvecs, tvecs
 
-    def pause(self, pause_time=0.5):
+    def pause(self, pause_time=0.5, speeds=None):
         time_start = time.time()
         self.time_prev = time.time()
         real_time_factor = 0.5
 
+        if speeds is not None:
+            self.ppi.set_velocity(speeds[0], speeds[1])
         while time.time() - time_start < pause_time:
             time_now = time.time()
             dt = time_now - self.time_prev
@@ -127,9 +132,32 @@ class Operate:
             self.ppi.set_velocity(0, 0)
             self.step(0, 0, dt)
 
+    def rotate(self, model_theta, pause_theta):
+        wheel_vel = 50
+        d_theta = model_theta - pause_theta
+
+        lv, rv = -wheel_vel, wheel_vel
+        k = 9
+        b_l = -(wheel_vel - d_theta * k)
+        b_r = -b_l
+        b_l, b_r = int(b_l), int(b_r)
+
+        k2 = 33
+        k3 = 40
+        y_int = 10
+        y_int2 = y_int + math.pi * k3
+        model_vel = (
+            y_int + k2 * d_theta if d_theta < math.pi / 2 else y_int2 - k3 * d_theta
+        )
+        m_l = -1 * min(wheel_vel, model_vel)
+        m_r = -m_l
+        m_l, m_r = int(m_l), int(m_r)
+
+        return m_l, m_r, b_l, b_r
+
     def spinOneRotation(self):
         # spinning and looking for markers at each step
-        wheel_vel = 28
+        wheel_vel = 50
 
         self.frames += 1
 
@@ -150,7 +178,8 @@ class Operate:
             dt *= real_time_factor
             self.time_prev = time_now
             model_theta = self.slam.get_state_vector()[2]
-            lv, rv = -wheel_vel, wheel_vel
+
+            m_l, m_r, b_l, b_r = self.rotate(model_theta, pause_theta)
 
             print(f"{seen_ids=}")
 
@@ -162,12 +191,13 @@ class Operate:
                         seen_ids.add(id)
 
             if model_theta - pause_theta > math.pi:
-                self.pause(2)
+                self.pause(2, (wheel_vel, -wheel_vel))
                 pause_theta = model_theta
             if model_theta - initial_theta > 2 * math.pi:
                 spin = False
 
-            self.step(lv, rv, dt)
+            self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
+
         self.ppi.set_velocity(0, 0, 0.5)
 
         # Save the paths
@@ -188,6 +218,8 @@ class Operate:
                 str(self.current_marker) if self.current_marker is not None else "start"
             )
             self.paths.append((current, str(marker_id), str(float(dist))))
+            if current != "start":
+                self.paths.append((str(marker_id), current, str(float(dist))))
 
         return seen_ids
 
@@ -201,16 +233,18 @@ class Operate:
 
         self.time_prev = time.time()
 
-        marker_pos = self.get_marker_location(goal_marker_id)
-        robot_pos = self.slam.robot.state[0:2]
-        relative_angle = math.atan2(
-            marker_pos[1] - robot_pos[1], marker_pos[0] - robot_pos[0]
-        )
+        try:
+            marker_pos = self.get_marker_location(goal_marker_id)
+            robot_pos = self.slam.robot.state[0:2]
+            relative_angle = math.atan2(
+                marker_pos[1] - robot_pos[1], marker_pos[0] - robot_pos[0]
+            )
+            delta = relative_angle - model_theta
+            spin_direction = 1 if delta > 0 else -1
+        except:
+            spin_direction = 1
 
         model_theta = self.slam.get_state_vector()[2]
-
-        delta = relative_angle - model_theta
-        spin_direction = 1 if delta > 0 else -1
 
         pause_theta = model_theta
         while True:
@@ -218,15 +252,14 @@ class Operate:
             dt = time_now - self.time_prev
             dt *= real_time_factor
             self.time_prev = time_now
-            wheel_vel = 28
             print(f"turning to target {goal_marker_id}")
-            lv, rv = -spin_direction * wheel_vel, spin_direction * wheel_vel
-            self.ppi.set_velocity(lv, rv)
+
+            model_theta = self.slam.get_state_vector()[2]
+            m_l, m_r, b_l, b_r = self.rotate(model_theta, pause_theta)
+            self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
 
             # Get the ids in view
             corners, ids, rejected, rvecs, tvecs = self.get_camera()
-
-            self.step(lv, rv, dt)
 
             if model_theta - pause_theta > math.pi:
                 self.pause(2)
@@ -240,6 +273,8 @@ class Operate:
             print(ids_in_view)
             if goal_marker_id in ids_in_view:
                 break
+
+        self.pause(4)
 
         adjusting = True
         adjusting_ticks = 0
@@ -276,7 +311,7 @@ class Operate:
                     if abs(diff_from_center) < 10:
                         adjusting = False
 
-            self.step(lv, rv, dt)
+            self.step(lv / 2, rv / 2, dt, bot_input=(lv, rv))
             adjusting_ticks += 1
 
         for _ in range(10):
@@ -296,7 +331,7 @@ class Operate:
             dt = time_now - self.time_prev
             dt *= real_time_factor
             self.time_prev = time_now
-            wheel_vel = 40
+            wheel_vel = 65
             print(f"driving to target {goal_marker_id}")
 
             lv, rv = wheel_vel, wheel_vel
@@ -312,6 +347,8 @@ class Operate:
 
             if dist < 0.75:
                 driving = False
+            elif dist > 1:
+                lv, rv = 76, 75
 
             # elif dist < 1.2:
             #     if ids is None:
@@ -335,6 +372,8 @@ class Operate:
             marker = self.slam.taglist[idx]
             if marker in self.markers_travelled_to or marker not in ids_in_view:
                 continue
+            if (self.current_marker, marker) in ip:
+                continue
             dist = (marker_x - position[0]) ** 2 + (marker_y - position[1]) ** 2
             dist = dist ** 0.5
             dist = float(dist)
@@ -345,11 +384,15 @@ class Operate:
         print(f"{min_marker=}, {min_dist=}")
         return min_marker, min_dist
 
-    def control(self, lv, rv, dt):
+    def control(self, lv, rv, dt, bot_input=None):
         # Import teleoperation control signals
-        self.ppi.set_velocity(lv, rv)
         drive_meas = Measurements.DriveMeasurement(lv, rv, dt=dt)
         self.slam.predict(drive_meas)
+        if bot_input is not None:
+            lv = bot_input[0]
+            rv = bot_input[1]
+            print(f"New {lv=} {rv=}")
+        self.ppi.set_velocity(lv, rv)
 
     def vision(self):
         # Import camera input and ARUCO marker info
@@ -369,8 +412,8 @@ class Operate:
 
         plt.pause(0.01)
 
-    def step(self, lv, rv, dt):
-        self.control(lv, rv, dt)
+    def step(self, lv, rv, dt, bot_input=None):
+        self.control(lv, rv, dt, bot_input)
         self.vision()
 
         # Save SLAM map
@@ -379,7 +422,13 @@ class Operate:
         # Output visualisation
         self.display(self.fig, self.ax)
 
-        print(f'{self.slam.robot.state[0:3]=}')
+        if time.time() - self.run_start > 290:
+            print("Hit 5 minutes... exiting")
+            self.ppi.set_velocity(0, 0)
+            self.write_map(self.slam)
+            sys.exit()
+
+        print(f"{self.slam.robot.state[0:3]=}")
 
     def write_map(self, slam):
         map_f = "map.txt"
@@ -402,6 +451,7 @@ class Operate:
             for path in self.paths:
                 line = ", ".join(path)
                 f.write(line + "\n")
+            f.close()
 
     def drive_one_metre(self):
         # spinning and looking for markers at each step
@@ -425,14 +475,24 @@ class Operate:
 
         self.ppi.set_velocity(0, 0, 0.5)
 
+    def check_early_exit(self):
+        if len(self.paths) > 12 and len(self.slam.taglist) == 8:
+            return True
+        else:
+            return False
+
     def process(self):
         # Show SLAM and camera feed side by side
         self.fig, self.ax = plt.subplots(1, 2)
         img_artist = self.ax[1].imshow(self.img)
+        self.get_camera()
 
         # Run our code
         while True:
             seen_ids = self.spinOneRotation()
+            if self.check_early_exit():
+                print("Found all required markers. Exiting...")
+                break
             goal_marker, goal_dist = self.get_closest_untravelled_marker(seen_ids)
             if goal_marker is None:
                 print("No marker to drive to")
