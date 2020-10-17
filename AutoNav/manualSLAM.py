@@ -52,6 +52,7 @@ line_type = 2
 
 valid_marker_ids = [1, 3, 7, 8, 9, 11, 12, 21, 39]
 ip = [(12, 21), (12, 39), (12, 1), (8, 1)]
+skip_survey = [1, 39]
 
 
 # Manual SLAM
@@ -132,9 +133,10 @@ class Operate:
             self.ppi.set_velocity(0, 0)
             self.step(0, 0, dt)
 
-    def rotate(self, model_theta, pause_theta):
+    def rotate(self, model_theta, pause_theta, spin_direction=1):
         wheel_vel = 50
         d_theta = model_theta - pause_theta
+        d_theta *= spin_direction
 
         lv, rv = -wheel_vel, wheel_vel
         k = 9
@@ -152,6 +154,11 @@ class Operate:
         m_l = -1 * min(wheel_vel, model_vel)
         m_r = -m_l
         m_l, m_r = int(m_l), int(m_r)
+
+        b_l *= spin_direction
+        b_r *= spin_direction
+        m_l *= spin_direction
+        m_r *= spin_direction
 
         return m_l, m_r, b_l, b_r
 
@@ -232,6 +239,11 @@ class Operate:
         real_time_factor = 0.5
 
         self.time_prev = time.time()
+        model_theta = self.slam.get_state_vector()[2]
+        while model_theta > math.pi:
+            model_theta -= 2 * math.pi
+        while model_theta < -math.pi:
+            model_theta += 2 * math.pi
 
         try:
             marker_pos = self.get_marker_location(goal_marker_id)
@@ -241,10 +253,9 @@ class Operate:
             )
             delta = relative_angle - model_theta
             spin_direction = 1 if delta > 0 else -1
-        except:
+        except Exception as e:
+            print(e)
             spin_direction = 1
-
-        model_theta = self.slam.get_state_vector()[2]
 
         pause_theta = model_theta
         while True:
@@ -255,13 +266,13 @@ class Operate:
             print(f"turning to target {goal_marker_id}")
 
             model_theta = self.slam.get_state_vector()[2]
-            m_l, m_r, b_l, b_r = self.rotate(model_theta, pause_theta)
+            m_l, m_r, b_l, b_r = self.rotate(model_theta, pause_theta, spin_direction)
             self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
 
             # Get the ids in view
             corners, ids, rejected, rvecs, tvecs = self.get_camera()
 
-            if model_theta - pause_theta > math.pi:
+            if abs(model_theta - pause_theta) > math.pi:
                 self.pause(2)
                 pause_theta = model_theta
 
@@ -278,7 +289,7 @@ class Operate:
 
         adjusting = True
         adjusting_ticks = 0
-        while adjusting and adjusting_ticks < 60:
+        while adjusting and adjusting_ticks < 30:
             time_now = time.time()
             dt = time_now - self.time_prev
             dt *= real_time_factor
@@ -311,7 +322,7 @@ class Operate:
                     if abs(diff_from_center) < 10:
                         adjusting = False
 
-            self.step(lv / 2, rv / 2, dt, bot_input=(lv, rv))
+            self.step(lv / 4, rv / 4, dt, bot_input=(lv, rv))
             adjusting_ticks += 1
 
         for _ in range(10):
@@ -320,6 +331,7 @@ class Operate:
 
     def drive_to_marker(self, goal_marker_id):
         real_time_factor = 0.5
+        prev_dist = 1e6
 
         self.time_prev = time.time()
 
@@ -345,10 +357,11 @@ class Operate:
             dist = dist ** 0.5
             print(f"{dist=} {ids=}")
 
-            if dist < 0.75:
+            if dist < 0.75 or dist > prev_dist:
                 driving = False
             elif dist > 1:
-                lv, rv = 76, 75
+                lv, rv = 78, 75
+            prev_dist = dist
 
             # elif dist < 1.2:
             #     if ids is None:
@@ -489,11 +502,12 @@ class Operate:
 
         # Run our code
         while True:
-            seen_ids = self.spinOneRotation()
+            if self.current_marker not in skip_survey:
+                self.seen_ids = self.spinOneRotation()
             if self.check_early_exit():
                 print("Found all required markers. Exiting...")
                 break
-            goal_marker, goal_dist = self.get_closest_untravelled_marker(seen_ids)
+            goal_marker, goal_dist = self.get_closest_untravelled_marker(self.seen_ids)
             if goal_marker is None:
                 print("No marker to drive to")
                 break
