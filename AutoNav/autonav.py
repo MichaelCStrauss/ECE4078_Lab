@@ -28,6 +28,8 @@ import cv2.aruco as cv2_aruco
 import slam.Measurements as Measurements
 import time
 
+from yolo import YoloV5
+
 
 # camera calibration parameters (from M2: SLAM)
 camera_matrix = np.loadtxt(
@@ -80,6 +82,8 @@ class Operate:
         self.current_marker = None
         self.spinning = True
         self.frames = 0
+
+        self.yolo = YoloV5('./weights.pt', "cuda") #TODO: Fix device
 
         self.run_start = time.time()
 
@@ -411,7 +415,10 @@ class Operate:
         # Import camera input and ARUCO marker info
         self.img = self.ppi.get_image()
         lms, aruco_image = self.aruco_det.detect_marker_positions(self.img)
+        preds = self.yolo.get_locations(self.img, self.slam)
         self.slam.add_landmarks(lms)
+
+
         # print(f'{self.slam.taglist=}, {self.slam.markers=}')
         self.slam.update(lms)
 
@@ -496,9 +503,15 @@ class Operate:
 
     def process(self):
         # Show SLAM and camera feed side by side
+        self.yolo.setup()
         self.fig, self.ax = plt.subplots(1, 2)
         img_artist = self.ax[1].imshow(self.img)
         self.get_camera()
+
+        img = self.ppi.get_image()
+        self.yolo.get_relative_locations(img)
+
+        return
 
         # Run our code
         while True:
