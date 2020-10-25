@@ -71,14 +71,16 @@ class YoloV5(object):
             classes=self.classes,
             agnostic=self.agnostic_nms,
         )[0]
+
+        if pred is None:
+            return None
+
         pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], image.shape).round()
 
-        print(pred)
         for prediction in pred.split(1):
             prediction = prediction.squeeze()
             det_class = "sheep" if prediction[5] == 0 else "coke"
             confidence = float(prediction[4])
-            print(f"Predicted a {det_class} with {confidence=}")
 
         return pred
 
@@ -90,14 +92,15 @@ class YoloV5(object):
         h_fov = 0.8517
         focal_length = (camera_w / 2) / np.tan(h_fov / 2)
 
-        print(f"{focal_length=}")
-
         pred = self.forward(image)
+        if pred is None:
+            return []
 
         # plt.imshow(image)
         # plt.show()
 
         # Get the locations here
+        objects = []
         for prediction in pred.split(1):
             prediction = prediction.squeeze()
 
@@ -126,8 +129,6 @@ class YoloV5(object):
             pixel_center = -pixel_center
             distance_to_camera = true_height / pixel_height * focal_length
 
-            print(f"Object distance to camera: {distance_to_camera}")
-
             # # object_height_real = 2
             # # sensor_height = 0.4
 
@@ -141,5 +142,8 @@ class YoloV5(object):
 
             theta = np.arctan(pixel_center * np.tan(h_fov / 2) / half_size_x)
 
-            object_x = distance_to_camera * np.sin(theta)
-            print(f"{pixel_center=} {theta=} {object_x=}")
+            object_y = distance_to_camera * np.sin(theta)
+            object_x = distance_to_camera * np.cos(theta)
+            objects.append((int(prediction[5]), object_x, object_y))
+
+        return objects
