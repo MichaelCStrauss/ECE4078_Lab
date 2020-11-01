@@ -1,6 +1,7 @@
 import numpy as np
 import SlamMap
 import matplotlib.patches as patches
+from Measurements import MarkerMeasurement
 
 
 class Slam:
@@ -53,8 +54,32 @@ class Slam:
 
         return self.P
 
-    def update(self, measurements):
+    def update(self, measurements, objects):
+        if not measurements and not objects:
+            return
+        if len(measurements) == 0 and len(objects) == 0:
+            return
         if not measurements:
+            measurements = []
+
+        th = self.robot.state[2]
+        robot_xy = self.robot.state[0:2, :]
+        R_theta = np.block([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+
+        for obj_class, obj_x, obj_y in objects:
+            lm_bff = np.array([obj_x, obj_y]).reshape((2, 1))
+            lm_inertial = robot_xy + R_theta @ lm_bff
+
+            tag = self.get_tag_of_object(
+                obj_class, lm_inertial[0, 0], lm_inertial[1, 0]
+            )
+
+            if tag is None:
+                continue
+
+            measurements.append(MarkerMeasurement(lm_bff, tag))
+        
+        if len(measurements) == 0:
             return
 
         # Construct measurement index list
@@ -102,38 +127,41 @@ class Slam:
         return Q
 
     def add_landmarks(self, measurements, objects):
-        if not measurements:
-            return
-
         th = self.robot.state[2]
         robot_xy = self.robot.state[0:2, :]
         R_theta = np.block([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+        if measurements:
+            # Add new landmarks to the state
+            for lm in measurements:
+                if lm.tag in self.taglist:
+                    # ignore known tags
+                    continue
 
-        # Add new landmarks to the state
-        for lm in measurements:
-            if lm.tag in self.taglist:
-                # ignore known tags
-                continue
+                lm_bff = lm.position
+                lm_inertial = robot_xy + R_theta @ lm_bff
 
-            lm_bff = lm.position
-            lm_inertial = robot_xy + R_theta @ lm_bff
+                self.taglist.append(int(lm.tag))
+                self.markers = np.concatenate((self.markers, lm_inertial), axis=1)
 
-            self.taglist.append(int(lm.tag))
-            self.markers = np.concatenate((self.markers, lm_inertial), axis=1)
-
-            # Create a simple, large covariance to be fixed by the update step
-            self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
-            self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
-            self.P[-2, -2] = self.init_lm_cov ** 2
-            self.P[-1, -1] = self.init_lm_cov ** 2
+                # Create a simple, large covariance to be fixed by the update step
+                self.P = np.concatenate(
+                    (self.P, np.zeros((2, self.P.shape[1]))), axis=0
+                )
+                self.P = np.concatenate(
+                    (self.P, np.zeros((self.P.shape[0], 2))), axis=1
+                )
+                self.P[-2, -2] = self.init_lm_cov ** 2
+                self.P[-1, -1] = self.init_lm_cov ** 2
 
         # Add new objects to the state
         for obj_class, obj_x, obj_y in objects:
             lm_bff = np.array([obj_x, obj_y]).reshape((2, 1))
             lm_inertial = robot_xy + R_theta @ lm_bff
 
-
-            if self.object_already_added(obj_class, lm_inertial[0, 0], lm_inertial[1, 0]):
+            if (
+                self.get_tag_of_object(obj_class, lm_inertial[0, 0], lm_inertial[1, 0])
+                is not None
+            ):
                 # ignore known tags
                 continue
 
@@ -152,7 +180,7 @@ class Slam:
             self.P[-2, -2] = self.init_lm_cov ** 2
             self.P[-1, -1] = self.init_lm_cov ** 2
 
-    def object_already_added(self, obj_class, obj_x, obj_y):
+    def get_tag_of_object(self, obj_class, obj_x, obj_y):
         threshold = 2
 
         for i in range(len(self.taglist)):
@@ -164,9 +192,9 @@ class Slam:
                 dist = dist ** 0.5
 
                 if dist < threshold:
-                    return True
+                    return tag
 
-        return False
+        return None
 
     # Plotting functions
     # ------------------
@@ -193,10 +221,16 @@ class Slam:
         ax.plot(robot_cov_ellipse[0, :], robot_cov_ellipse[1, :], "r-")
 
         for i in range(self.number_landmarks()):
+            tag = self.taglist[i]
             lmi = self.markers[:, i]
             Plmi = self.P[3 + 2 * i : 3 + 2 * (i + 1), 3 + 2 * i : 3 + 2 * (i + 1)]
             lmi_cov_ellipse = self.make_ellipse(lmi, Plmi)
-            ax.plot(lmi_cov_ellipse[0, :], lmi_cov_ellipse[1, :], "b-")
+            col = "b-"
+            if tag <= -10:
+                col = 'r-'
+            elif tag <= -1:
+                col = 'g-'
+            ax.plot(lmi_cov_ellipse[0, :], lmi_cov_ellipse[1, :], col)
 
         ax.axis("equal")
         ax.set_xlim(-5 + self.robot.state[0], 5 + self.robot.state[0])

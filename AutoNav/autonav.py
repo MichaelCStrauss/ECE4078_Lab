@@ -55,7 +55,6 @@ font_scale = 1
 font_col = (255, 255, 255)
 line_type = 2
 
-valid_marker_ids = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
 ip = [(None, 3), (17, 5)]
 skip_survey = []
 
@@ -90,6 +89,8 @@ class Operate:
         self.yolo = YoloV5("./weights.pt", "cuda")  # TODO: Fix device
 
         self.run_start = time.time()
+
+        self.keyboard_controlled = False
 
     # def __del__(self):
     # self.ppi.set_velocity(0, 0)
@@ -142,19 +143,19 @@ class Operate:
             self.step(0, 0, dt)
 
     def rotate(self, model_theta, pause_theta, spin_direction=1):
-        wheel_vel = 40
+        wheel_vel = 42
         d_theta = abs(model_theta - pause_theta)
 
         lv, rv = -wheel_vel, wheel_vel
-        k = 40
-        break_at = 2 * math.pi / 3
-        reduction = (d_theta - break_at) * k if d_theta > break_at else 0
+        k = 60
+        break_at = 3 * math.pi / 4
+        reduction = k if d_theta > break_at else 0
         b_l = -(wheel_vel - reduction)
         b_r = -b_l
         b_l, b_r = int(b_l), int(b_r)
 
-        k2 = 17
-        k3 = 12
+        k2 = 23
+        k3 = 24
         y_int = 10
         y_int2 = wheel_vel * 2
         model_vel = (
@@ -203,18 +204,16 @@ class Operate:
             if ids is not None:
                 ids_in_view = [ids[i, 0] for i in range(len(ids))]
                 for id in ids_in_view:
-                    if id in valid_marker_ids:
-                        seen_ids.add(id)
+                    seen_ids.add(id)
 
+            self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
             if model_theta - pause_theta > math.pi:
-                self.pause(2, (wheel_vel, -wheel_vel))
+                self.pause(3)
                 pause_theta = model_theta
             if model_theta - initial_theta > 2 * math.pi:
                 spin = False
 
-            self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
-
-        self.ppi.set_velocity(0, 0, 0.5)
+        self.pause()
 
         # Save the paths
         position = self.slam.robot.state[0:2]
@@ -371,7 +370,7 @@ class Operate:
             if dist < threshold or dist > prev_dist:
                 driving = False
             elif dist > 1:
-                b_lv = 70
+                b_lv = 75
             prev_dist = dist
 
             # elif dist < 1.2:
@@ -498,7 +497,7 @@ class Operate:
         self.slam.add_landmarks(lms, objects)
 
         # print(f'{self.slam.taglist=}, {self.slam.markers=}')
-        self.slam.update(lms)
+        self.slam.update(lms, objects)
 
     def display(self, fig, ax):
         # Visualize SLAM
@@ -537,14 +536,18 @@ class Operate:
             min_marker = None
 
             lines = []
+            num_sheep = 0
+            num_coke = 0
             for idx, (marker_x, marker_y) in enumerate(zip(x_list, y_list)):
                 marker = self.slam.taglist[idx]
                 if marker > 0:
                     marker = f"Marker{marker}"
                 elif -10 < marker <= -1:
-                    marker = f"sheep"
+                    num_sheep += 1
+                    marker = f"sheep{num_sheep}"
                 elif marker <= -10:
-                    marker = f"Coke"
+                    num_coke += 1
+                    marker = f"Coke{num_coke}"
                 lines.append(f"{marker}, {marker_x}, {marker_y}\n")
             lines = sorted(lines)
             f.writelines(lines)
@@ -557,7 +560,7 @@ class Operate:
 
     def drive_distance(self, distance=1):
         # spinning and looking for markers at each step
-        wheel_vel = 40
+        wheel_vel = 65
 
         start = self.slam.get_state_vector()[0:2]
         drive = True
@@ -572,13 +575,12 @@ class Operate:
             dist = (current[0] - start[0]) ** 2 + (current[1] - start[1]) ** 2
             dist = dist ** 0.5
             lv, rv = wheel_vel, wheel_vel
+            b_lv, b_rv = lv + 5, rv
 
             if dist > distance:
                 drive = False
 
-            self.step(lv, rv, dt)
-
-        self.ppi.set_velocity(0, 0, 0.5)
+            self.step(lv, rv, dt, bot_input=(b_lv, b_rv))
 
     def check_early_exit(self):
         if len(self.paths) > 12 and len(self.slam.taglist) == 8:
@@ -594,27 +596,41 @@ class Operate:
         self.times_no_marker = 0
 
         # Run our code
-        while True:
-            if self.current_marker not in skip_survey:
-                self.seen_ids = self.spinOneRotation()
-            if self.check_early_exit():
-                print("Found all required markers. Exiting...")
-                break
-            goal_marker, goal_dist = self.get_next_marker_up(self.seen_ids)
-            if self.current_marker not in skip_survey:
-                self.markers_seen_at_step.append(self.seen_ids)
-            if goal_marker is None:
-                print("No marker to drive to")
-                rads = math.pi / 2
-                if self.times_no_marker % 2 == 1:
-                    rads = 3 * math.pi / 2
-                self.times_no_marker += 1
-                self.spin_radians(rads)
-                self.drive_distance(3)
-                continue
-            self.spin_to_marker(goal_marker)
-            self.drive_to_marker(goal_marker)
-            self.markers_travelled_to.append(goal_marker)
+        if not self.keyboard_controlled:
+            while True:
+                if self.current_marker not in skip_survey:
+                    self.seen_ids = self.spinOneRotation()
+                if self.check_early_exit():
+                    print("Found all required markers. Exiting...")
+                    break
+                goal_marker, goal_dist = self.get_next_marker_up(self.seen_ids)
+                if self.current_marker not in skip_survey:
+                    self.markers_seen_at_step.append(self.seen_ids)
+                if goal_marker is None:
+                    print("No marker to drive to")
+                    rads = math.pi / 2
+                    dist = 3
+                    if self.times_no_marker % 2 == 1:
+                        rads = 3 * math.pi / 2
+                        dist = 5
+                    self.times_no_marker += 1
+                    self.spin_radians(rads)
+                    self.drive_distance(dist)
+                    continue
+                self.spin_to_marker(goal_marker)
+                self.drive_to_marker(goal_marker)
+                self.markers_travelled_to.append(goal_marker)
+        else:
+            time_prev = time.time()
+            while True:
+                time_now = time.time()
+                dt = time_now - time_prev
+                time_prev = time_now
+
+                lv, rv = self.keyboard.get_drive_signal()
+
+                self.step(lv // 4, rv // 4, dt, bot_input=(lv, rv))
+
 
 
 if __name__ == "__main__":
@@ -624,6 +640,12 @@ if __name__ == "__main__":
     # connect to the robot
     ppi = penguinPiC.PenguinPi()
 
+    kb = False
+    if len(sys.argv) > 1 and sys.argv[1] == 'keyboard':
+        print("Using keyboard!")
+        kb = True
+
     # Perform Manual SLAM
     operate = Operate(datadir, ppi)
+    operate.keyboard_controlled = kb
     operate.process()
