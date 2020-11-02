@@ -10,13 +10,16 @@ class PenguinPi:
         self.port = 8080
 
     def set_velocity(self, lvel, rvel, time=0):
-        if time == 0:
-            r = requests.get(f"http://{self.ip}:{self.port}/robot/set/velocity?value="+str(lvel)+","+str(rvel))
-        else:
-            assert (time > 0), "Time must be positive."
-            assert (time < 30), "Time must be less than network timeout (20s)."
-            r = requests.get("http://"+self.ip+":"+str(self.port)+"/robot/set/velocity?value="+str(lvel)+","+str(rvel)
-                            +"&time="+str(time))
+        try:
+            if time == 0:
+                r = requests.get(f"http://{self.ip}:{self.port}/robot/set/velocity?value="+str(lvel)+","+str(rvel))
+            else:
+                assert (time > 0), "Time must be positive."
+                assert (time < 30), "Time must be less than network timeout (20s)."
+                r = requests.get("http://"+self.ip+":"+str(self.port)+"/robot/set/velocity?value="+str(lvel)+","+str(rvel)
+                                +"&time="+str(time))
+        except:
+            print("Error sending request")
         return lvel, rvel
         
     def get_image(self):

@@ -148,14 +148,14 @@ class Operate:
 
         lv, rv = -wheel_vel, wheel_vel
         k = 60
-        break_at = 3 * math.pi / 4
+        break_at = 4 * math.pi / 5
         reduction = k if d_theta > break_at else 0
         b_l = -(wheel_vel - reduction)
         b_r = -b_l
         b_l, b_r = int(b_l), int(b_r)
 
         k2 = 23
-        k3 = 24
+        k3 = 18
         y_int = 10
         y_int2 = wheel_vel * 2
         model_vel = (
@@ -612,7 +612,7 @@ class Operate:
                     dist = 3
                     if self.times_no_marker % 2 == 1:
                         rads = 3 * math.pi / 2
-                        dist = 5
+                        dist = 4
                     self.times_no_marker += 1
                     self.spin_radians(rads)
                     self.drive_distance(dist)
