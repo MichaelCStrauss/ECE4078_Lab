@@ -7,6 +7,7 @@ This is our submission for the fourth milestone. We have used the SLAM code from
 Running our code for this milestone should be simple:
 
 Simply run the file `autonav.py`: as `python3 autonav.py`.
+Additionally, to use the keyboard for navigation: `python3 autonav.py keyboard`
 
 We have not modified the SDF files.
 
