@@ -10,11 +10,12 @@ import cv2.aruco as aruco
 class Keyboard:
     # feel free to change the speed, or add keys to do so
     wheel_vel_forward = 50
-    wheel_vel_rotation = 50
+    wheel_vel_rotation = 30
     def __init__(self, ppi=None):
         # storage for key presses
         self.directions = [False for _ in range(4)]
         self.signal_stop = False 
+        self.adjust = False
 
         # connection to PenguinPi robot
         self.ppi = ppi
@@ -35,9 +36,9 @@ class Keyboard:
             self.directions[3] = True
         elif key == Key.space:
             self.signal_stop = True
+        elif key == Key.shift:
+            self.adjust = True
         
-        self.send_drive_signal()
-
     def on_release(self, key):
         # use arrow keys to drive, space key to stop
         # feel free to add more keys
@@ -52,12 +53,7 @@ class Keyboard:
         elif key == Key.space:
             self.signal_stop = False
         elif key == Key.shift:
-            self.wheel_vel_forward += 20
-            self.wheel_vel_rotation += 5
-        elif key == Key.ctrl:
-            self.wheel_vel_forward -= 20
-            self.wheel_vel_rotation -= 5
-        self.send_drive_signal()
+            self.adjust = False
 
 
     def get_drive_signal(self):           
@@ -85,11 +81,7 @@ class Keyboard:
             right_speed = -self.wheel_vel_rotation
             left_speed = self.wheel_vel_rotation
 
-        if self.signal_stop:
-            left_speed = 0
-            right_speed = 0
-
-        return left_speed, right_speed
+        return left_speed, right_speed, self.adjust, self.signal_stop
     
     def send_drive_signal(self):
         if not self.ppi is None:

@@ -91,6 +91,7 @@ class Operate:
         self.run_start = time.time()
 
         self.keyboard_controlled = False
+        self.manual = False
 
     # def __del__(self):
     # self.ppi.set_velocity(0, 0)
@@ -143,25 +144,25 @@ class Operate:
             self.step(0, 0, dt)
 
     def rotate(self, model_theta, pause_theta, spin_direction=1):
-        wheel_vel = 42
+        wheel_vel = 30
         d_theta = abs(model_theta - pause_theta)
 
         lv, rv = -wheel_vel, wheel_vel
         k = 60
-        break_at = 4 * math.pi / 5
+        break_at = 12 * math.pi / 12
         reduction = k if d_theta > break_at else 0
         b_l = -(wheel_vel - reduction)
         b_r = -b_l
         b_l, b_r = int(b_l), int(b_r)
 
-        k2 = 23
-        k3 = 18
-        y_int = 10
-        y_int2 = wheel_vel * 2
+        k2 = 10
+        k3 = 0
+        y_int = 7
+        y_int2 = wheel_vel
         model_vel = (
             y_int + k2 * d_theta if d_theta < math.pi / 2 else y_int2 - k3 * d_theta
         )
-        m_l = -1 * min(wheel_vel, model_vel)
+        m_l = -1 * min(wheel_vel / 2, model_vel)
         m_r = -m_l
         m_l, m_r = int(m_l), int(m_r)
 
@@ -198,7 +199,7 @@ class Operate:
 
             m_l, m_r, b_l, b_r = self.rotate(model_theta, pause_theta)
 
-            print(f"{seen_ids=}")
+            # print(f"{seen_ids=}")
 
             corners, ids, rejected, rvecs, tvecs = self.get_camera()
             if ids is not None:
@@ -223,7 +224,7 @@ class Operate:
             try:
                 marker_location = self.get_marker_location(marker_id)
             except ValueError:
-                print(f"{marker_id=} value error")
+                print(f"{marker_id} value error")
                 continue
             dist = (marker_location[0] - position[0]) ** 2 + (
                 marker_location[1] - position[1]
@@ -293,7 +294,7 @@ class Operate:
             if goal_marker_id in ids_in_view:
                 break
 
-        self.pause(4)
+        self.pause(2)
 
         adjusting = True
         adjusting_ticks = 0
@@ -302,7 +303,7 @@ class Operate:
             dt = time_now - self.time_prev
             dt *= real_time_factor
             self.time_prev = time_now
-            wheel_vel = 40
+            wheel_vel = 30
             print(f"adjusting to target {goal_marker_id}")
 
             lv, rv = 0, 0
@@ -318,15 +319,15 @@ class Operate:
 
                     avg_x = corners[i][0, :, 0].mean()
                     diff_from_center = avg_x - 320
-                    print(f"{diff_from_center=}")
+                    print(f"{diff_from_center}")
                     k = 0.4
                     lv, rv = (
                         diff_from_center * k,
                         -diff_from_center * k,
                     )
                     lv, rv = int(lv), int(rv)
-                    lv = np.clip(lv, -40, 40)
-                    rv = np.clip(rv, -40, 40)
+                    lv = np.clip(lv, -wheel_vel, wheel_vel)
+                    rv = np.clip(rv, -wheel_vel, wheel_vel)
                     if abs(diff_from_center) < 10:
                         adjusting = False
 
@@ -364,9 +365,9 @@ class Operate:
                 target_location[1] - position[1]
             ) ** 2
             dist = dist ** 0.5
-            print(f"{dist=} {ids=}")
+            print(f"{dist} {ids}")
 
-            threshold = 2
+            threshold = 1.5
             if dist < threshold or dist > prev_dist:
                 driving = False
             elif dist > 1:
@@ -421,8 +422,8 @@ class Operate:
                 top_y = marker_y
                 top_y_marker = marker
 
-        print(f"{min_marker=}, {min_dist=}")
-        print(f"{max_marker=}, {max_dist=}")
+        print(f"{min_marker}, {min_dist}")
+        print(f"{max_marker}, {max_dist}")
         if mode == "closest":
             return min_marker, min_dist
         elif mode == "furthest":
@@ -510,6 +511,16 @@ class Operate:
         plt.pause(0.01)
 
     def step(self, lv, rv, dt, bot_input=None):
+        print(self.slam.robot.state)
+        if not self.manual:
+            keyboard_l, keyboard_r, adjustment, _ = self.keyboard.get_drive_signal()
+            if adjustment:
+                lv += keyboard_l // 2
+                rv += keyboard_r // 2
+            else:
+                if keyboard_l != 0 or keyboard_r != 0:
+                    lv, rv, b_lv, b_rv = self.convert_keyboard_to_slam_bot(keyboard_l, keyboard_r)
+                    bot_input = b_lv, b_rv
         self.control(lv, rv, dt, bot_input)
         self.vision()
 
@@ -518,12 +529,6 @@ class Operate:
 
         # Output visualisation
         self.display(self.fig, self.ax)
-
-        if time.time() - self.run_start > 580:
-            print("Hit 10 minutes... exiting")
-            self.ppi.set_velocity(0, 0)
-            self.write_map(self.slam)
-            sys.exit()
 
     def write_map(self, slam):
         map_f = "map.txt"
@@ -587,6 +592,63 @@ class Operate:
             return True
         else:
             return False
+        
+    def run_one_iteration(self):
+        self.seen_ids = self.spinOneRotation()
+
+        manual = False
+        target = None
+        while True:
+            print("Enter ID to drive to, or 'drive'")
+            print("Seen IDs: " + str(self.seen_ids))
+            command = input()
+            if command == "drive":
+                manual = True
+                break
+            try:
+                if int(command) in self.seen_ids:
+                    target = int(command)
+                    break
+            except:
+                continue
+        
+        if manual:
+            self.manual_control()
+        else:
+            self.spin_to_marker(target)
+            self.drive_to_marker(target)
+    
+    def convert_keyboard_to_slam_bot(self, lv, rv):
+        b_lv, b_rv = lv, rv
+        if lv == 0 or rv == 0:
+            pass
+        elif lv / rv > 0:
+            lv = lv // 2
+            rv = rv // 2
+        elif lv / rv < 0:
+            lv = lv // 4
+            rv = rv // 4
+
+        return lv, rv, b_lv, b_rv
+
+    def manual_control(self):
+        self.manual = True
+        time_prev = time.time()
+        while True:
+            time_now = time.time()
+            dt = time_now - time_prev
+            time_prev = time_now
+
+            lv, rv, adjust, stop = self.keyboard.get_drive_signal()
+            if stop:
+                break 
+
+            lv, rv, b_lv, b_rv = self.convert_keyboard_to_slam_bot(lv, rv)
+            if adjust:
+                b_lv, b_rv = 0, 0
+
+            self.step(lv, rv, dt, bot_input=(b_lv, b_rv))
+        self.manual = False
 
     def process(self):
         # Show SLAM and camera feed side by side
@@ -596,40 +658,8 @@ class Operate:
         self.times_no_marker = 0
 
         # Run our code
-        if not self.keyboard_controlled:
-            while True:
-                if self.current_marker not in skip_survey:
-                    self.seen_ids = self.spinOneRotation()
-                if self.check_early_exit():
-                    print("Found all required markers. Exiting...")
-                    break
-                goal_marker, goal_dist = self.get_next_marker_up(self.seen_ids)
-                if self.current_marker not in skip_survey:
-                    self.markers_seen_at_step.append(self.seen_ids)
-                if goal_marker is None:
-                    print("No marker to drive to")
-                    rads = math.pi / 2
-                    dist = 3
-                    if self.times_no_marker % 2 == 1:
-                        rads = 3 * math.pi / 2
-                        dist = 4
-                    self.times_no_marker += 1
-                    self.spin_radians(rads)
-                    self.drive_distance(dist)
-                    continue
-                self.spin_to_marker(goal_marker)
-                self.drive_to_marker(goal_marker)
-                self.markers_travelled_to.append(goal_marker)
-        else:
-            time_prev = time.time()
-            while True:
-                time_now = time.time()
-                dt = time_now - time_prev
-                time_prev = time_now
-
-                lv, rv = self.keyboard.get_drive_signal()
-
-                self.step(lv // 4, rv // 4, dt, bot_input=(lv, rv))
+        while True:
+            self.run_one_iteration()
 
 
 
@@ -648,4 +678,7 @@ if __name__ == "__main__":
     # Perform Manual SLAM
     operate = Operate(datadir, ppi)
     operate.keyboard_controlled = kb
-    operate.process()
+    try:
+        operate.process()
+    except KeyboardInterrupt:
+        operate.ppi.set_velocity(0, 0)
