@@ -208,6 +208,15 @@ class Operate:
                     seen_ids.add(id)
 
             self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
+            image = self.ppi.get_image()
+            objects = self.yolo.get_relative_locations(image)
+            for class_id, local_x, local_y in objects:
+                world_x, world_y = self.slam.transform_local_world_space(local_x, local_y)
+                tag_id = self.slam.get_tag_of_object(class_id, world_x, world_y)
+                if tag_id is None:
+                    continue
+                seen_ids.add(tag_id)
+
             if model_theta - pause_theta > math.pi:
                 self.pause(3)
                 pause_theta = model_theta
@@ -215,27 +224,6 @@ class Operate:
                 spin = False
 
         self.pause()
-
-        # Save the paths
-        position = self.slam.robot.state[0:2]
-        for marker_id in seen_ids:
-            if marker_id == self.current_marker:
-                continue
-            try:
-                marker_location = self.get_marker_location(marker_id)
-            except ValueError:
-                print(f"{marker_id} value error")
-                continue
-            dist = (marker_location[0] - position[0]) ** 2 + (
-                marker_location[1] - position[1]
-            ) ** 2
-            dist = dist ** 0.5
-            current = (
-                str(self.current_marker) if self.current_marker is not None else "start"
-            )
-            self.paths.append((current, str(marker_id), str(float(dist))))
-            if current != "start":
-                self.paths.append((str(marker_id), current, str(float(dist))))
 
         return seen_ids
 
@@ -278,21 +266,35 @@ class Operate:
             m_l, m_r, b_l, b_r = self.rotate(model_theta, pause_theta, spin_direction)
             self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
 
-            # Get the ids in view
-            corners, ids, rejected, rvecs, tvecs = self.get_camera()
 
             if abs(model_theta - pause_theta) > math.pi:
                 self.pause(2)
                 pause_theta = model_theta
 
-            print(ids)
-            if ids is None:
-                continue
-            ids_in_view = [ids[i, 0] for i in range(len(ids))]
+            if goal_marker_id > 0:
+                # Get the ids in view
+                corners, ids, rejected, rvecs, tvecs = self.get_camera()
+                print(ids)
+                if ids is None:
+                    continue
+                ids_in_view = [ids[i, 0] for i in range(len(ids))]
 
-            print(ids_in_view)
-            if goal_marker_id in ids_in_view:
-                break
+                print(ids_in_view)
+                if goal_marker_id in ids_in_view:
+                    break
+            else:
+                image = self.ppi.get_image()
+                objects = self.yolo.get_relative_locations(image)
+                print(objects)
+                found = False
+                for class_id, local_x, local_y in objects:
+                    world_x, world_y = self.slam.transform_local_world_space(local_x, local_y)
+                    tag_id = self.slam.get_tag_of_object(class_id, world_x, world_y)
+                    if tag_id == goal_marker_id:
+                        found = True
+                        break
+                if found:
+                    break
 
         self.pause(2)
 
@@ -308,17 +310,37 @@ class Operate:
 
             lv, rv = 0, 0
 
-            corners, ids, rejected, rvecs, tvecs = self.get_camera()
+            if goal_marker_id > 0:
+                corners, ids, rejected, rvecs, tvecs = self.get_camera()
 
-            if ids is not None:
-                for i in range(len(ids)):
-                    idi = ids[i, 0]
-                    # Some markers appear multiple times but should only be handled once.
-                    if idi != goal_marker_id:
+                if ids is not None:
+                    for i in range(len(ids)):
+                        idi = ids[i, 0]
+                        # Some markers appear multiple times but should only be handled once.
+                        if idi != goal_marker_id:
+                            continue
+
+                        avg_x = corners[i][0, :, 0].mean()
+                        diff_from_center = avg_x - 320
+                        print(f"{diff_from_center}")
+                        k = 0.4
+                        lv, rv = (
+                            diff_from_center * k,
+                            -diff_from_center * k,
+                        )
+                        lv, rv = int(lv), int(rv)
+                        lv = np.clip(lv, -wheel_vel, wheel_vel)
+                        rv = np.clip(rv, -wheel_vel, wheel_vel)
+                        if abs(diff_from_center) < 10:
+                            adjusting = False
+            else:
+                image = self.ppi.get_image()
+                preds = self.yolo.forward(image)
+                target_class = 0 if -10 < goal_marker_id <= -1 else 1
+                for prediction in preds:
+                    if prediction[5] != target_class:
                         continue
-
-                    avg_x = corners[i][0, :, 0].mean()
-                    diff_from_center = avg_x - 320
+                    diff_from_center = float(prediction[2] + prediction[0]) / 2 - 320
                     print(f"{diff_from_center}")
                     k = 0.4
                     lv, rv = (
@@ -373,6 +395,12 @@ class Operate:
             elif dist > 1:
                 b_lv = 75
             prev_dist = dist
+
+            kboard_data = self.keyboard.get_drive_signal()
+            stop_signal = kboard_data[3]
+            if stop_signal:
+                break
+
 
             # elif dist < 1.2:
             #     if ids is None:
@@ -515,8 +543,8 @@ class Operate:
         if not self.manual:
             keyboard_l, keyboard_r, adjustment, _ = self.keyboard.get_drive_signal()
             if adjustment:
-                lv += keyboard_l // 2
-                rv += keyboard_r // 2
+                lv += int(keyboard_l / 1.5)
+                rv += int(keyboard_r / 1.5)
             else:
                 if keyboard_l != 0 or keyboard_r != 0:
                     lv, rv, b_lv, b_rv = self.convert_keyboard_to_slam_bot(keyboard_l, keyboard_r)
@@ -600,7 +628,19 @@ class Operate:
         target = None
         while True:
             print("Enter ID to drive to, or 'drive'")
-            print("Seen IDs: " + str(self.seen_ids))
+            seen_string = ""
+            for m_id in self.seen_ids:
+                seen_string += f'\n{m_id} '
+                if m_id <= -10:
+                    seen_string += "coke "
+                elif m_id < 0:
+                    seen_string += "sheep "
+                try:
+                    pos = self.get_marker_location(m_id)
+                    seen_string += f"({pos[0]}, {pos[1]})"
+                except ValueError:
+                    seen_string += f"(unknown)"
+            print("Seen IDs: " + seen_string)
             command = input()
             if command == "drive":
                 manual = True
@@ -623,11 +663,12 @@ class Operate:
         if lv == 0 or rv == 0:
             pass
         elif lv / rv > 0:
-            lv = lv // 2
-            rv = rv // 2
+            lv = int(lv / 2.1)
+            rv = int(rv / 2.1)
+            b_lv += 5
         elif lv / rv < 0:
-            lv = lv // 4
-            rv = rv // 4
+            lv = int(lv / 5)
+            rv = int(rv / 5)
 
         return lv, rv, b_lv, b_rv
 
@@ -659,6 +700,7 @@ class Operate:
 
         # Run our code
         while True:
+            # self.manual_control()
             self.run_one_iteration()
 
 
