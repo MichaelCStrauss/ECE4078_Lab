@@ -7,11 +7,12 @@ This is our submission for the fourth milestone. We have used the SLAM code from
 Running our code for this milestone should be simple:
 
 Simply run the file `autonav.py`: as `python3 autonav.py`.
-Additionally, to use the keyboard for navigation: `python3 autonav.py keyboard`
 
 We have not modified the SDF files.
 
-The robot will then begin to autonomously navigate the arena, and produce an output file `map.txt` in the same output format as the reference, with marker locations and then path distances.
+The robot will then begin to semi-autonomously navigate the arena with prompts, and produce an output file `map.txt` in the same output format as the reference, with marker locations. Select 'drive' after the first full 360 degree spin to manually navigate using the keyboard.
+
+NOTE: Running the YOLO network currently uses CUDA. Modify autonav.py line 89 to say "cpu" instead of CUDA to use CPU only.
 
 # Results
 

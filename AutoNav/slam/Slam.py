@@ -190,7 +190,7 @@ class Slam:
         return lm_inertial[0, 0], lm_inertial[1, 0]
     
     def get_tag_of_object(self, obj_class, obj_x, obj_y):
-        threshold = 1
+        threshold = 1.5
 
         for i in range(len(self.taglist)):
             tag = self.taglist[i]
