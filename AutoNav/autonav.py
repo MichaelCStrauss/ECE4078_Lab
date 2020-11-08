@@ -149,7 +149,7 @@ class Operate:
 
         lv, rv = -wheel_vel, wheel_vel
         k = 60
-        break_at = 12 * math.pi / 12
+        break_at = 24 * math.pi / 12
         reduction = k if d_theta > break_at else 0
         b_l = -(wheel_vel - reduction)
         b_r = -b_l
@@ -217,14 +217,16 @@ class Operate:
                     continue
                 seen_ids.add(tag_id)
 
-            if model_theta - pause_theta > math.pi:
+            if model_theta - pause_theta > 2*math.pi:
                 self.pause(3)
                 pause_theta = model_theta
             if model_theta - initial_theta > 2 * math.pi:
                 spin = False
+            kboard_info = self.keyboard.get_drive_signal()
+            if kboard_info[3] == True:
+                spin = False
 
         self.pause()
-
         return seen_ids
 
     def get_marker_location(self, marker_id):
@@ -267,7 +269,7 @@ class Operate:
             self.step(m_l, m_r, dt, bot_input=(b_l, b_r))
 
 
-            if abs(model_theta - pause_theta) > math.pi:
+            if abs(model_theta - pause_theta) > 2*math.pi:
                 self.pause(2)
                 pause_theta = model_theta
 
@@ -317,11 +319,29 @@ class Operate:
                     for i in range(len(ids)):
                         idi = ids[i, 0]
                         # Some markers appear multiple times but should only be handled once.
-                        if idi != goal_marker_id:
+                        if idi == goal_marker_id:
+                            avg_x = corners[i][0, :, 0].mean()
+                            diff_from_center = avg_x - 320
+                            print(f"{diff_from_center}")
+                            k = 0.4
+                            lv, rv = (
+                                diff_from_center * k,
+                                -diff_from_center * k,
+                            )
+                            lv, rv = int(lv), int(rv)
+                            lv = np.clip(lv, -wheel_vel, wheel_vel)
+                            rv = np.clip(rv, -wheel_vel, wheel_vel)
+                            if abs(diff_from_center) < 10:
+                                adjusting = False
+            else:
+                image = self.ppi.get_image()
+                preds = self.yolo.forward(image)
+                target_class = 0 if -10 < goal_marker_id <= -1 else 1
+                if preds is not None:
+                    for prediction in preds:
+                        if prediction[5] != target_class:
                             continue
-
-                        avg_x = corners[i][0, :, 0].mean()
-                        diff_from_center = avg_x - 320
+                        diff_from_center = float(prediction[2] + prediction[0]) / 2 - 320
                         print(f"{diff_from_center}")
                         k = 0.4
                         lv, rv = (
@@ -333,25 +353,6 @@ class Operate:
                         rv = np.clip(rv, -wheel_vel, wheel_vel)
                         if abs(diff_from_center) < 10:
                             adjusting = False
-            else:
-                image = self.ppi.get_image()
-                preds = self.yolo.forward(image)
-                target_class = 0 if -10 < goal_marker_id <= -1 else 1
-                for prediction in preds:
-                    if prediction[5] != target_class:
-                        continue
-                    diff_from_center = float(prediction[2] + prediction[0]) / 2 - 320
-                    print(f"{diff_from_center}")
-                    k = 0.4
-                    lv, rv = (
-                        diff_from_center * k,
-                        -diff_from_center * k,
-                    )
-                    lv, rv = int(lv), int(rv)
-                    lv = np.clip(lv, -wheel_vel, wheel_vel)
-                    rv = np.clip(rv, -wheel_vel, wheel_vel)
-                    if abs(diff_from_center) < 10:
-                        adjusting = False
 
             self.step(lv / 4, rv / 4, dt, bot_input=(lv, rv))
             adjusting_ticks += 1
@@ -537,9 +538,21 @@ class Operate:
         ax[1].imshow(self.img[:, :, -1::-1])
 
         plt.pause(0.01)
+    
+    def adjust(self):
+        directions, move = self.keyboard.get_key_status()
+        if not move:
+            return
+        current_pos = self.slam.robot.state
+        dt = time.time() - self.time_prev
+        speed = 0.5 * dt
+        current_pos[0] += np.clip((directions[3] - directions[2]) * speed, -0.3, 0.3)
+        current_pos[1] += np.clip((directions[0] - directions[1]) * speed, -0.3, 0.3)
+        self.slam.robot.state = current_pos
 
     def step(self, lv, rv, dt, bot_input=None):
         print(self.slam.robot.state)
+        print(self.slam.taglist)
         if not self.manual:
             keyboard_l, keyboard_r, adjustment, _ = self.keyboard.get_drive_signal()
             if adjustment:
@@ -549,6 +562,7 @@ class Operate:
                 if keyboard_l != 0 or keyboard_r != 0:
                     lv, rv, b_lv, b_rv = self.convert_keyboard_to_slam_bot(keyboard_l, keyboard_r)
                     bot_input = b_lv, b_rv
+        self.adjust()
         self.control(lv, rv, dt, bot_input)
         self.vision()
 
@@ -581,9 +595,10 @@ class Operate:
                 elif marker <= -10:
                     num_coke += 1
                     marker = f"Coke{num_coke}"
-                lines.append(f"{marker}, {marker_x}, {marker_y}\n")
+                lines.append(f"{marker}, {round(marker_x, 4)}, {round(marker_y, 4)}\n")
             lines = sorted(lines)
             f.writelines(lines)
+        return lines
 
             # f.write("\ncurrent id, accessible id, distance\n")
             # for path in self.paths:
@@ -627,20 +642,23 @@ class Operate:
         manual = False
         target = None
         while True:
-            print("Enter ID to drive to, or 'drive'")
-            seen_string = ""
-            for m_id in self.seen_ids:
-                seen_string += f'\n{m_id} '
+            print("Current Map:")
+            print("".join(self.write_map(self.slam)))
+            seen_string = "\n"
+            for m_id in sorted(self.seen_ids):
+                seen_string += f'{m_id} '
                 if m_id <= -10:
                     seen_string += "coke "
                 elif m_id < 0:
                     seen_string += "sheep "
                 try:
                     pos = self.get_marker_location(m_id)
-                    seen_string += f"({pos[0]}, {pos[1]})"
+                    seen_string += f"({round(pos[0], 1)}, {round(pos[1], 1)})"
                 except ValueError:
                     seen_string += f"(unknown)"
+                seen_string += " || "
             print("Seen IDs: " + seen_string)
+            print("Enter ID to drive to, or 'drive'")
             command = input()
             if command == "drive":
                 manual = True
@@ -665,7 +683,7 @@ class Operate:
         elif lv / rv > 0:
             lv = int(lv / 2.1)
             rv = int(rv / 2.1)
-            b_lv += 5
+            b_lv += 15
         elif lv / rv < 0:
             lv = int(lv / 5)
             rv = int(rv / 5)
@@ -674,11 +692,10 @@ class Operate:
 
     def manual_control(self):
         self.manual = True
-        time_prev = time.time()
+        self.time_prev = time.time()
         while True:
             time_now = time.time()
-            dt = time_now - time_prev
-            time_prev = time_now
+            dt = time_now - self.time_prev
 
             lv, rv, adjust, stop = self.keyboard.get_drive_signal()
             if stop:
@@ -689,6 +706,7 @@ class Operate:
                 b_lv, b_rv = 0, 0
 
             self.step(lv, rv, dt, bot_input=(b_lv, b_rv))
+            self.time_prev = time_now
         self.manual = False
 
     def process(self):

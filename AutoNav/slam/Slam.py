@@ -33,6 +33,7 @@ class Slam:
     def set_state_vector(self, state):
         self.robot.state = state[0:3, :]
         self.markers = np.reshape(state[3:, :], (2, -1), order="F")
+        self.markers = np.clip(self.markers, -12, 12)
 
     def save_map(self, fname="slam_map.txt"):
         if self.number_landmarks() > 0:
@@ -179,9 +180,17 @@ class Slam:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2, -2] = self.init_lm_cov ** 2
             self.P[-1, -1] = self.init_lm_cov ** 2
-
+    
+    def transform_local_world_space(self, obj_x, obj_y):
+        th = self.robot.state[2]
+        robot_xy = self.robot.state[0:2, :]
+        R_theta = np.block([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+        lm_bff = np.array([obj_x, obj_y]).reshape((2, 1))
+        lm_inertial = robot_xy + R_theta @ lm_bff
+        return lm_inertial[0, 0], lm_inertial[1, 0]
+    
     def get_tag_of_object(self, obj_class, obj_x, obj_y):
-        threshold = 2
+        threshold = 1
 
         for i in range(len(self.taglist)):
             tag = self.taglist[i]
